@@ -106,3 +106,40 @@ def generate_financial_pdf(df_v, df_e, period, company):
     pdf.set_font("helvetica", "B", 12)
     pdf.cell(0, 10, f"Lucro: € {df_v['price'].sum() - df_e['amount'].sum():,.2f}", ln=True)
     return bytes(pdf.output(dest='S'))
+
+# Adicione isso no services.py
+def get_financial_by_range(db: Session, company_id: int, start_date: datetime, end_date: datetime):
+    # Garante que pegamos até o ultimo segundo do dia final
+    if end_date.hour == 0 and end_date.minute == 0:
+        end_date = end_date.replace(hour=23, minute=59, second=59)
+    
+    s_q = db.query(
+        Sale.date,
+        Sale.quantity,
+        Sale.price,
+        Product.name.label("product_name")
+    ).join(Product).filter(
+        Sale.company_id == company_id, 
+        Sale.date >= start_date, 
+        Sale.date <= end_date
+    ).statement
+    
+    e_q = db.query(
+        Expense.date,
+        Expense.description,
+        Expense.category,
+        Expense.amount
+    ).filter(
+        Expense.company_id == company_id, 
+        Expense.date >= start_date, 
+        Expense.date <= end_date
+    ).statement
+            
+    try:
+        df_sales = pd.read_sql(s_q, db.bind)
+        df_expenses = pd.read_sql(e_q, db.bind)
+    except Exception:
+        df_sales = pd.DataFrame(columns=['date', 'quantity', 'price', 'product_name'])
+        df_expenses = pd.DataFrame(columns=['date', 'description', 'category', 'amount'])
+    
+    return df_sales, df_expenses
