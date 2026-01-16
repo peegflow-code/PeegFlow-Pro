@@ -1,0 +1,207 @@
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+from database import get_db, engine, Base
+import services as api
+from models import User, Company, Product, Sale, Expense
+from datetime import datetime
+
+# Configurações iniciais da página
+st.set_page_config(page_title='PeegFlow Pro', page_icon='⚡', layout='wide')
+Base.metadata.create_all(bind=engine)
+db = next(get_db())
+
+# --- ESTILOS CSS (Login, PDV e Financeiro) ---
+st.markdown("""<style>
+    /* Estilo Geral */
+    .stApp { background-color: #F4F7FE; color: #1B2559; }
+    [data-testid="stSidebar"] { background-color: #111827; border-right: 1px solid #1F2937; }
+
+    /* TELA DE LOGIN (Referência image_ea97e5) */
+    .login-container { display: flex; flex-direction: column; align-items: center; justify-content: center; padding-top: 50px; }
+    .login-box { background: white; padding: 40px; border-radius: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); width: 450px; text-align: center; }
+    .login-logo-top { margin-bottom: 20px; }
+
+    /* CUPOM FISCAL PDV (Referência image_e9b6e2) */
+    .receipt-panel {
+        background-color: #111827 !important; 
+        border-radius: 20px; 
+        padding: 25px; 
+        color: white !important; 
+        min-height: 550px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    }
+    .receipt-title { color: #A3AED0 !important; font-size: 0.8rem; font-weight: 700; letter-spacing: 1px; border-bottom: 1px solid #2B3674; padding-bottom: 10px; margin-bottom: 20px; }
+    .receipt-item { display: flex; justify-content: space-between; margin-bottom: 12px; font-size: 0.95rem; color: white !important; }
+    .receipt-total-section { margin-top: 30px; border-top: 1px dashed #2B3674; padding-top: 20px; }
+    .total-value { font-size: 2.8rem; font-weight: 800; color: #10B981 !important; line-height: 1; }
+
+    /* MÓDULO FINANCEIRO (Referência image_ea9519) */
+    .fin-card-white { background: white; padding: 35px; border-radius: 24px; border: 1px solid #E0E5F2; box-shadow: 0 4px 12px rgba(0,0,0,0.02); }
+    .fin-card-purple { background: linear-gradient(135deg, #6366F1 0%, #4F46E5 100%); padding: 35px; border-radius: 24px; color: white; box-shadow: 0 10px 20px rgba(99, 102, 241, 0.2); }
+    .fin-title { color: #A3AED0; font-size: 0.85rem; font-weight: 700; text-transform: uppercase; margin-bottom: 10px; }
+    .fin-value-main { color: #10B981; font-size: 2.5rem; font-weight: 800; margin-bottom: 20px; }
+    
+    /* Botões */
+    div.stButton > button { border-radius: 12px; font-weight: 600; transition: all 0.3s; }
+</style>""", unsafe_allow_html=True)
+
+# Inicialização do estado da sessão
+if 'logged_in' not in st.session_state:
+    st.session_state.update({'logged_in': False, 'user_id': None, 'company_id': None, 'username': None, 'cart': []})
+
+# --- LÓGICA DE LOGIN ---
+if not st.session_state['logged_in']:
+    _, col_central, _ = st.columns([1, 1.2, 1])
+    with col_central:
+        st.markdown('<div class="login-container">', unsafe_allow_html=True)
+        st.image("logo_peegflow.jpg", width=70) # Logo centralizado no topo
+        st.markdown("<h2 style='text-align: center; color: #1B2559; margin-top: 10px;'>Bem-vindo ao PeegFlow</h2>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #A3AED0; margin-bottom: 30px;'>Insira os seus dados para aceder ao painel.</p>", unsafe_allow_html=True)
+        
+        with st.form("login_form"):
+            u = st.text_input("USUÁRIO", placeholder="Ex: admin")
+            p = st.text_input("SENHA", type="password", placeholder="••••••••")
+            st.write("")
+            if st.form_submit_button("Entrar no Sistema ⚡", use_container_width=True):
+                user = api.authenticate(db, u, p)
+                if user:
+                    st.session_state.update({'logged_in': True, 'user_id': user.id, 'company_id': user.company_id, 'username': user.username})
+                    st.rerun()
+                else:
+                    st.error("Credenciais inválidas")
+            
+            if st.form_submit_button("🧪 Ativar Modo Demo (30 dias)", use_container_width=True):
+                api.setup_demo_data(db)
+                st.session_state.update({'logged_in': True, 'user_id': 99, 'company_id': 99, 'username': 'Admin Demo'})
+                st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+    st.stop()
+
+# --- ESTRUTURA PRINCIPAL (SIDEBAR) ---
+cid = st.session_state['company_id']
+with st.sidebar:
+    st.image("logo_peegflow.jpg", width=140)
+    st.write(f"👤 **{st.session_state['username']}**")
+    st.divider()
+    choice = st.radio("Navegação", ["📊 Dashboard", "🛒 Checkout (PDV)", "💰 Fluxo Financeiro", "📦 Estoque"])
+    if st.button("Sair"): st.session_state.clear(); st.rerun()
+
+# --- DASHBOARD ---
+if choice == "📊 Dashboard":
+    st.title("Dashboard Executivo")
+    df_daily = api.get_daily_sales_data(db, cid)
+    
+    col1, col2, col3 = st.columns(3)
+    df_v, df_e = api.get_financial_data(db, cid)
+    col1.metric("Vendas (30d)", f"€ {df_v['price'].sum():,.2f}")
+    col2.metric("Ticket Médio", f"€ {df_v['price'].mean() if not df_v.empty else 0:,.2f}")
+    col3.metric("Despesas", f"€ {df_e['amount'].sum():,.2f}")
+
+    fig = px.area(df_daily, x='date', y='total', title="Evolução de Faturamento")
+    fig.update_traces(line_color='#6366F1', fillcolor='rgba(99, 102, 241, 0.1)')
+    st.plotly_chart(fig, use_container_width=True)
+
+# --- PDV (Checkout) ---
+elif choice == "🛒 Checkout (PDV)":
+    st.title("Ponto de Venda")
+    col_prod, col_receipt = st.columns([0.6, 0.4], gap="large")
+
+    with col_prod:
+        search = st.text_input("🔍 Pesquisar produto ou código de barras...", placeholder="Ex: iPhone...")
+        prods = api.get_products(db, cid)
+        
+        # Grid de produtos
+        p_cols = st.columns(3)
+        for i, p in enumerate([pr for pr in prods if search.lower() in pr.name.lower()]):
+            with p_cols[i % 3]:
+                st.markdown(f"""
+                <div style="background: white; padding: 20px; border-radius: 15px; border: 1px solid #E0E5F2; text-align: center; margin-bottom: 10px;">
+                    <div style="font-size: 2rem;">📱</div>
+                    <div style="font-weight: 700; color: #1B2559; margin: 10px 0;">{p.name}</div>
+                    <div style="color: #6366F1; font-weight: 800;">€ {p.price_retail:,.2f}</div>
+                </div>
+                """, unsafe_allow_html=True)
+                if st.button("Adicionar", key=f"add_{p.id}", use_container_width=True):
+                    st.session_state['cart'].append({"id": p.id, "name": p.name, "price": p.price_retail})
+                    st.rerun()
+
+    with col_receipt:
+        st.markdown('<div class="receipt-panel">', unsafe_allow_html=True)
+        st.markdown(f'<div class="receipt-title">CUPÃO FISCAL #{datetime.now().strftime("%H%M")}</div>', unsafe_allow_html=True)
+        
+        total = 0.0
+        if not st.session_state['cart']:
+            st.markdown('<div style="color: #4B5563; text-align: center; margin-top: 60px;">Aguardando produtos...</div>', unsafe_allow_html=True)
+        else:
+            for item in st.session_state['cart']:
+                total += item['price']
+                st.markdown(f'<div class="receipt-item"><span>{item["name"]}</span><span style="font-weight: 700;">€ {item["price"]:,.2f}</span></div>', unsafe_allow_html=True)
+        
+        st.markdown('<div class="receipt-total-section">', unsafe_allow_html=True)
+        st.markdown(f'<div class="receipt-item"><span style="color: #A3AED0;">Subtotal</span><span>€ {total:,.2f}</span></div>', unsafe_allow_html=True)
+        st.markdown(f"""
+            <div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 10px;">
+                <span style="color: #A3AED0; font-weight: 700; font-size: 0.9rem;">TOTAL</span>
+                <span class="total-value">€ {total:,.2f}</span>
+            </div>
+        """, unsafe_allow_html=True)
+        st.markdown('</div>') # fecha total-section
+        
+        st.write("")
+        if st.button("FINALIZAR VENDA (F10)", type="primary", use_container_width=True):
+            if st.session_state['cart']:
+                for item in st.session_state['cart']:
+                    api.process_sale(db, item['id'], 1, "varejo", st.session_state['user_id'], cid)
+                st.session_state['cart'] = []
+                st.success("Venda processada!")
+                st.rerun()
+        
+        if st.button("🗑️ Limpar Tudo", use_container_width=True):
+            st.session_state['cart'] = []
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+
+# --- FINANCEIRO (REFERÊNCIA image_ea9519) ---
+elif choice == "💰 Fluxo Financeiro":
+    st.title("Módulo Financeiro")
+    df_v, df_e = api.get_financial_data(db, cid)
+    receita = df_v['price'].sum()
+    despesas = df_e['amount'].sum()
+    lucro = receita - despesas
+
+    col_resumo, col_proximos = st.columns([1.5, 1], gap="large")
+
+    with col_resumo:
+        st.markdown(f"""
+        <div class="fin-card-white">
+            <div class="fin-title">Fluxo de Caixa (Mês)</div>
+            <div class="fin-value-main">+ € {lucro:,.2f}</div>
+            <div class="receipt-item"><span style="color: #A3AED0;">Receitas de Vendas</span><span style="color: #10B981; font-weight:700;">+ € {receita:,.2f}</span></div>
+            <div class="receipt-item"><span style="color: #A3AED0;">Custo de Mercadoria (Estoque)</span><span style="color: #FF4B4B; font-weight:700;">- € {receita*0.3:,.2f}</span></div>
+            <div class="receipt-item"><span style="color: #A3AED0;">Operacional (Aluguel/Luz)</span><span style="color: #FF4B4B; font-weight:700;">- € {despesas:,.2f}</span></div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.write("")
+        if st.button("📥 Exportar Fechamento de Caixa (PDF)", use_container_width=True):
+            pdf_bytes = api.generate_financial_pdf(df_v, df_e, "Últimos 30 dias", "PeegFlow Store")
+            st.download_button("Clique aqui para Baixar", pdf_bytes, "financeiro.pdf", "application/pdf")
+
+    with col_proximos:
+        st.markdown(f"""
+        <div class="fin-card-purple">
+            <div style="font-size: 0.85rem; font-weight: 700; opacity: 0.9; text-transform: uppercase;">Próximos Pagamentos</div>
+            <div style="font-size: 2.5rem; font-weight: 800; margin: 15px 0;">€ {despesas * 0.4:,.2f}</div>
+            <div style="background: white; color: #6366F1; text-align: center; padding: 12px; border-radius: 12px; font-weight: 700; margin-top: 30px; cursor: pointer;">
+                Ver Calendário Fiscal
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+# --- ESTOQUE ---
+elif choice == "📦 Estoque":
+    st.title("Gestão de Inventário")
+    prods = api.get_products(db, cid)
+    df_p = pd.DataFrame([{"Nome": p.name, "Preço": p.price_retail, "Estoque": p.stock, "SKU": p.sku} for p in prods])
+    st.table(df_p)
