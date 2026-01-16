@@ -127,7 +127,7 @@ with st.sidebar:
     if st.button("Sair"): st.session_state.clear(); st.rerun()
 
 # --- DASHBOARD EXECUTIVO 2.0 ---
-elif choice == "📊 Dashboard":
+if choice == "📊 Dashboard":
     st.title("Dashboard Executivo")
     st.markdown("Visão estratégica do seu negócio em tempo real.")
     
