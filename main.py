@@ -55,7 +55,18 @@ if not st.session_state['logged_in']:
     _, col_central, _ = st.columns([1, 1.2, 1])
     with col_central:
         st.markdown('<div class="login-container">', unsafe_allow_html=True)
-        st.image("logo_peegflow.jpg", width=70) # Logo centralizado no topo
+                # ... dentro do with col_central:
+        st.markdown('<div class="login-container">', unsafe_allow_html=True)
+        
+        # --- SOLUÇÃO: Colunas aninhadas para forçar o centro ---
+        c_left, c_img, c_right = st.columns([1, 1, 1]) # Cria 3 colunas internas
+        with c_img:
+            st.image("logo_peegflow.jpg", width=70)
+        # -------------------------------------------------------
+
+        st.markdown("<h2 style='text-align: center; ...", unsafe_allow_html=True)
+        # ... resto do código
+
         st.markdown("<h2 style='text-align: center; color: #1B2559; margin-top: 10px;'>Bem-vindo ao PeegFlow</h2>", unsafe_allow_html=True)
         st.markdown("<p style='text-align: center; color: #A3AED0; margin-bottom: 30px;'>Insira os seus dados para aceder ao painel.</p>", unsafe_allow_html=True)
         
