@@ -5,6 +5,7 @@ from database import get_db, engine, Base
 import services as api
 from models import User, Company, Product, Sale, Expense
 from datetime import datetime
+import base64
 
 # Configurações iniciais da página
 st.set_page_config(page_title='PeegFlow Pro', page_icon='⚡', layout='wide')
@@ -50,45 +51,72 @@ st.markdown("""<style>
 if 'logged_in' not in st.session_state:
     st.session_state.update({'logged_in': False, 'user_id': None, 'company_id': None, 'username': None, 'cart': []})
 
+# --- FUNÇÃO AUXILIAR PARA IMAGEM (Pode ficar logo antes do if de login) ---
+def get_img_as_base64(file_path):
+    try:
+        with open(file_path, "rb") as f:
+            data = f.read()
+        return base64.b64encode(data).decode()
+    except Exception:
+        return None
+
 # --- LÓGICA DE LOGIN ---
 if not st.session_state['logged_in']:
+    # Layout de colunas apenas para limitar a largura no Desktop
+    # No mobile, o Streamlit empilha, mas o HTML interno manterá o centro
     _, col_central, _ = st.columns([1, 1.2, 1])
+    
     with col_central:
         st.markdown('<div class="login-container">', unsafe_allow_html=True)
-                # ... dentro do with col_central:
-        st.markdown('<div class="login-container">', unsafe_allow_html=True)
         
-        # --- SOLUÇÃO: Colunas aninhadas para forçar o centro ---
-        c_left, c_img, c_right = st.columns([1, 1, 1]) # Cria 3 colunas internas
-        with c_img:
-            st.image("logo_peegflow.jpg", width=70)
-        # -------------------------------------------------------
-
-        st.markdown("<h2 style='text-align: center; ...", unsafe_allow_html=True)
-        # ... resto do código
-
-        st.markdown("<h2 style='text-align: center; color: #1B2559; margin-top: 10px;'>Bem-vindo ao PeegFlow</h2>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: #A3AED0; margin-bottom: 30px;'>Insira os seus dados para aceder ao painel.</p>", unsafe_allow_html=True)
+        # 1. Carregar e converter a imagem
+        img_b64 = get_img_as_base64("logo_peegflow.jpg")
         
+        # 2. Renderizar Cabeçalho (Logo + Títulos) em HTML Puro
+        # Isso garante que o alinhamento central funcione em qualquer dispositivo
+        html_header = f"""
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; margin-bottom: 20px;">
+            <img src="data:image/jpeg;base64,{img_b64}" style="width: 80px; margin-bottom: 10px; border-radius: 50%;">
+            <h2 style="text-align: center; color: #1B2559; margin: 0; font-size: 2rem;">Bem-vindo ao PeegFlow</h2>
+            <p style="text-align: center; color: #A3AED0; margin-top: 10px; font-size: 1rem;">Insira os seus dados para aceder ao painel.</p>
+        </div>
+        """
+        st.markdown(html_header, unsafe_allow_html=True)
+
+        # 3. Formulário de Login
         with st.form("login_form"):
             u = st.text_input("USUÁRIO", placeholder="Ex: admin")
             p = st.text_input("SENHA", type="password", placeholder="••••••••")
-            st.write("")
+            
+            st.write("") # Espaçamento
+            
+            # Botão de Login
             if st.form_submit_button("Entrar no Sistema ⚡", use_container_width=True):
                 user = api.authenticate(db, u, p)
                 if user:
-                    st.session_state.update({'logged_in': True, 'user_id': user.id, 'company_id': user.company_id, 'username': user.username})
+                    st.session_state.update({
+                        'logged_in': True, 
+                        'user_id': user.id, 
+                        'company_id': user.company_id, 
+                        'username': user.username
+                    })
                     st.rerun()
                 else:
                     st.error("Credenciais inválidas")
-            
+
+            # Botão Demo
             if st.form_submit_button("🧪 Ativar Modo Demo (30 dias)", use_container_width=True):
                 api.setup_demo_data(db)
-                st.session_state.update({'logged_in': True, 'user_id': 99, 'company_id': 99, 'username': 'Admin Demo'})
+                st.session_state.update({
+                    'logged_in': True, 
+                    'user_id': 99, 
+                    'company_id': 99, 
+                    'username': 'Admin Demo'
+                })
                 st.rerun()
+                
         st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
-
 # --- ESTRUTURA PRINCIPAL (SIDEBAR) ---
 cid = st.session_state['company_id']
 with st.sidebar:
