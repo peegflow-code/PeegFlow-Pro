@@ -126,20 +126,142 @@ with st.sidebar:
     choice = st.radio("Navegação", ["📊 Dashboard", "🛒 Checkout (PDV)", "💰 Fluxo Financeiro", "📦 Estoque"])
     if st.button("Sair"): st.session_state.clear(); st.rerun()
 
-# --- DASHBOARD ---
-if choice == "📊 Dashboard":
+# --- DASHBOARD EXECUTIVO 2.0 ---
+elif choice == "📊 Dashboard":
     st.title("Dashboard Executivo")
-    df_daily = api.get_daily_sales_data(db, cid)
+    st.markdown("Visão estratégica do seu negócio em tempo real.")
     
-    col1, col2, col3 = st.columns(3)
-    df_v, df_e = api.get_financial_data(db, cid)
-    col1.metric("Vendas (30d)", f"€ {df_v['price'].sum():,.2f}")
-    col2.metric("Ticket Médio", f"€ {df_v['price'].mean() if not df_v.empty else 0:,.2f}")
-    col3.metric("Despesas", f"€ {df_e['amount'].sum():,.2f}")
+    # 1. PREPARAÇÃO DOS DADOS
+    # Vamos pegar 60 dias para poder comparar "Mês Atual" vs "Mês Anterior"
+    end_date = datetime.now()
+    start_date_current = end_date - timedelta(days=30)
+    start_date_previous = start_date_current - timedelta(days=30)
+    
+    # Busca dados brutos
+    df_vendas_atual, df_desp_atual = api.get_financial_by_range(db, cid, start_date_current, end_date)
+    df_vendas_prev, df_desp_prev = api.get_financial_by_range(db, cid, start_date_previous, start_date_current)
 
-    fig = px.area(df_daily, x='date', y='total', title="Evolução de Faturamento")
-    fig.update_traces(line_color='#6366F1', fillcolor='rgba(99, 102, 241, 0.1)')
-    st.plotly_chart(fig, use_container_width=True)
+    # Cálculos dos KPIs
+    rec_atual = df_vendas_atual['price'].sum() if not df_vendas_atual.empty else 0
+    rec_prev = df_vendas_prev['price'].sum() if not df_vendas_prev.empty else 0
+    delta_rec = rec_atual - rec_prev
+    
+    lucro_atual = rec_atual - (df_desp_atual['amount'].sum() if not df_desp_atual.empty else 0)
+    
+    ticket_medio = df_vendas_atual['price'].mean() if not df_vendas_atual.empty else 0
+    
+    # Contagem de Vendas (Transações)
+    qtd_vendas = len(df_vendas_atual)
+
+    # 2. KPI CARDS COM DELTA (COMPARATIVO)
+    col1, col2, col3, col4 = st.columns(4)
+    
+    col1.metric(
+        "Faturamento (30d)", 
+        f"€ {rec_atual:,.2f}", 
+        f"{delta_rec:,.2f} vs mês ant.",
+        delta_color="normal" # Verde se positivo, vermelho se negativo
+    )
+    col2.metric(
+        "Lucro Líquido Est.", 
+        f"€ {lucro_atual:,.2f}",
+        "Margem: " + (f"{lucro_atual/rec_atual:.1%}" if rec_atual > 0 else "0%"),
+        delta_color="off"
+    )
+    col3.metric(
+        "Ticket Médio", 
+        f"€ {ticket_medio:,.2f}",
+        help="Valor médio gasto por cliente por compra"
+    )
+    col4.metric(
+        "Total Vendas", 
+        f"{qtd_vendas}",
+        f"{qtd_vendas - len(df_vendas_prev)} vs mês ant."
+    )
+
+    st.divider()
+
+    # 3. GRÁFICOS AVANÇADOS
+    col_g1, col_g2 = st.columns([0.65, 0.35], gap="large")
+
+    with col_g1:
+        st.subheader("📈 Mapa de Calor de Vendas")
+        if not df_vendas_atual.empty:
+            # Processamento para Heatmap (Dia da Semana x Hora)
+            df_heat = df_vendas_atual.copy()
+            df_heat['date'] = pd.to_datetime(df_heat['date'])
+            df_heat['hour'] = df_heat['date'].dt.hour
+            df_heat['weekday'] = df_heat['date'].dt.day_name()
+            
+            # Agrupar dados
+            heat_data = df_heat.groupby(['weekday', 'hour'])['price'].sum().reset_index()
+            
+            # Ordenar dias da semana corretamente
+            days_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+            
+            fig_heat = px.density_heatmap(
+                heat_data, 
+                x='hour', 
+                y='weekday', 
+                z='price', 
+                color_continuous_scale='Viridis',
+                category_orders={"weekday": days_order},
+                title="Intensidade de Vendas (Dia x Hora)",
+                labels={'weekday': 'Dia', 'hour': 'Hora', 'price': 'Vendas (€)'}
+            )
+            fig_heat.update_layout(xaxis_dtick=1) # Mostrar todas as horas
+            st.plotly_chart(fig_heat, use_container_width=True)
+        else:
+            st.info("Sem dados suficientes para gerar o mapa de calor.")
+
+    with col_g2:
+        st.subheader("🏆 Top Produtos")
+        if not df_vendas_atual.empty:
+            # Agrupar por produto e somar vendas
+            df_top = df_vendas_atual.groupby('product_name')['price'].sum().reset_index()
+            df_top = df_top.sort_values(by='price', ascending=True).tail(5) # Top 5
+            
+            fig_bar = px.bar(
+                df_top, 
+                x='price', 
+                y='product_name', 
+                orientation='h',
+                text_auto='.2s',
+                title="Campeões de Receita",
+                color='price',
+                color_continuous_scale=['#A3AED0', '#6366F1'] # Cores do seu tema
+            )
+            fig_bar.update_layout(showlegend=False, xaxis_title=None, yaxis_title=None)
+            st.plotly_chart(fig_bar, use_container_width=True)
+        else:
+            st.info("Sem vendas registradas.")
+
+    # 4. GRÁFICO DE TENDÊNCIA (LINHA DO TEMPO)
+    st.subheader("Evolução Diária (Vendas vs Custos)")
+    if not df_vendas_atual.empty:
+        # Agrupa Vendas por dia
+        daily_sales = df_vendas_atual.groupby(df_vendas_atual['date'].dt.date)['price'].sum().reset_index()
+        daily_sales['Tipo'] = 'Receita'
+        daily_sales.rename(columns={'price': 'Valor'}, inplace=True)
+        
+        # Agrupa Despesas por dia
+        daily_exp = df_desp_atual.groupby(df_desp_atual['date'].dt.date)['amount'].sum().reset_index()
+        daily_exp['Tipo'] = 'Despesa'
+        daily_exp.rename(columns={'amount': 'Valor'}, inplace=True)
+        
+        # Junta tudo
+        df_chart = pd.concat([daily_sales, daily_exp])
+        
+        fig_evol = px.area(
+            df_chart, 
+            x='date', 
+            y='Valor', 
+            color='Tipo',
+            color_discrete_map={'Receita': '#10B981', 'Despesa': '#FF4B4B'}, # Verde e Vermelho
+            title="Comparativo Diário"
+        )
+        st.plotly_chart(fig_evol, use_container_width=True)
+
 
 # --- PDV (Checkout) ---
 elif choice == "🛒 Checkout (PDV)":
