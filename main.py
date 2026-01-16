@@ -165,27 +165,51 @@ elif choice == "🛒 Checkout (PDV)":
                     st.session_state['cart'].append({"id": p.id, "name": p.name, "price": p.price_retail})
                     st.rerun()
 
-    with col_receipt:
-        st.markdown('<div class="receipt-panel">', unsafe_allow_html=True)
-        st.markdown(f'<div class="receipt-title">CUPÃO FISCAL #{datetime.now().strftime("%H%M")}</div>', unsafe_allow_html=True)
+        with col_receipt:
+        # 1. Inicia a construção do HTML em uma variável string
+        receipt_html = '<div class="receipt-panel">'
         
+        # Cabeçalho do Cupom
+        receipt_html += f'<div class="receipt-title">CUPÃO FISCAL #{datetime.now().strftime("%H%M")}</div>'
+
+        # Lógica dos Itens (dentro da string HTML)
         total = 0.0
         if not st.session_state['cart']:
-            st.markdown('<div style="color: #4B5563; text-align: center; margin-top: 60px;">Aguardando produtos...</div>', unsafe_allow_html=True)
+            receipt_html += '<div style="color: #4B5563; text-align: center; margin-top: 60px;">Aguardando produtos...</div>'
         else:
             for item in st.session_state['cart']:
                 total += item['price']
-                st.markdown(f'<div class="receipt-item"><span>{item["name"]}</span><span style="font-weight: 700;">€ {item["price"]:,.2f}</span></div>', unsafe_allow_html=True)
-        
-        st.markdown('<div class="receipt-total-section">', unsafe_allow_html=True)
-        st.markdown(f'<div class="receipt-item"><span style="color: #A3AED0;">Subtotal</span><span>€ {total:,.2f}</span></div>', unsafe_allow_html=True)
-        st.markdown(f"""
+                receipt_html += f'<div class="receipt-item"><span>{item["name"]}</span><span style="font-weight: 700;">€ {item["price"]:,.2f}</span></div>'
+
+        # Seção de Total
+        receipt_html += '<div class="receipt-total-section">'
+        receipt_html += f'<div class="receipt-item"><span style="color: #A3AED0;">Subtotal</span><span>€ {total:,.2f}</span></div>'
+        receipt_html += f"""
             <div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 10px;">
                 <span style="color: #A3AED0; font-weight: 700; font-size: 0.9rem;">TOTAL</span>
                 <span class="total-value">€ {total:,.2f}</span>
             </div>
-        """, unsafe_allow_html=True)
-        st.markdown('</div>') # fecha total-section
+        """
+        receipt_html += '</div>' # Fecha total-section
+        receipt_html += '</div>' # Fecha receipt-panel (FIM DO BLOCO PRETO)
+
+        # 2. Renderiza o HTML visual de uma única vez
+        st.markdown(receipt_html, unsafe_allow_html=True)
+
+        # 3. Botões (Ficam logo abaixo do painel visual)
+        st.write("")
+        if st.button("FINALIZAR VENDA (F10)", type="primary", use_container_width=True):
+            if st.session_state['cart']:
+                for item in st.session_state['cart']:
+                    api.process_sale(db, item['id'], 1, "varejo", st.session_state['user_id'], cid)
+                st.session_state['cart'] = []
+                st.success("Venda processada!")
+                st.rerun()
+
+        if st.button("🗑️ Limpar Tudo", use_container_width=True):
+            st.session_state['cart'] = []
+            st.rerun()
+
         
         st.write("")
         if st.button("FINALIZAR VENDA (F10)", type="primary", use_container_width=True):
