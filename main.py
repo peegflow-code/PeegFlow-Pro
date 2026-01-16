@@ -146,13 +146,17 @@ elif choice == "🛒 Checkout (PDV)":
     st.title("Ponto de Venda")
     col_prod, col_receipt = st.columns([0.6, 0.4], gap="large")
 
+    # --- COLUNA DA ESQUERDA (PRODUTOS) ---
     with col_prod:
         search = st.text_input("🔍 Pesquisar produto ou código de barras...", placeholder="Ex: iPhone...")
         prods = api.get_products(db, cid)
-        
+
         # Grid de produtos
         p_cols = st.columns(3)
-        for i, p in enumerate([pr for pr in prods if search.lower() in pr.name.lower()]):
+        # Filtro simples
+        filtered_prods = [pr for pr in prods if search.lower() in pr.name.lower()]
+        
+        for i, p in enumerate(filtered_prods):
             with p_cols[i % 3]:
                 st.markdown(f"""
                 <div style="background: white; padding: 20px; border-radius: 15px; border: 1px solid #E0E5F2; text-align: center; margin-bottom: 10px;">
@@ -165,14 +169,15 @@ elif choice == "🛒 Checkout (PDV)":
                     st.session_state['cart'].append({"id": p.id, "name": p.name, "price": p.price_retail})
                     st.rerun()
 
-        with col_receipt:
-        # 1. Inicia a construção do HTML em uma variável string
+    # --- COLUNA DA DIREITA (CUPOM) ---
+    with col_receipt:
+        # 1. Construção do HTML do Cupom (Visual Preto)
         receipt_html = '<div class="receipt-panel">'
         
-        # Cabeçalho do Cupom
+        # Cabeçalho
         receipt_html += f'<div class="receipt-title">CUPÃO FISCAL #{datetime.now().strftime("%H%M")}</div>'
 
-        # Lógica dos Itens (dentro da string HTML)
+        # Itens
         total = 0.0
         if not st.session_state['cart']:
             receipt_html += '<div style="color: #4B5563; text-align: center; margin-top: 60px;">Aguardando produtos...</div>'
@@ -181,7 +186,7 @@ elif choice == "🛒 Checkout (PDV)":
                 total += item['price']
                 receipt_html += f'<div class="receipt-item"><span>{item["name"]}</span><span style="font-weight: 700;">€ {item["price"]:,.2f}</span></div>'
 
-        # Seção de Total
+        # Totalização
         receipt_html += '<div class="receipt-total-section">'
         receipt_html += f'<div class="receipt-item"><span style="color: #A3AED0;">Subtotal</span><span>€ {total:,.2f}</span></div>'
         receipt_html += f"""
@@ -190,40 +195,30 @@ elif choice == "🛒 Checkout (PDV)":
                 <span class="total-value">€ {total:,.2f}</span>
             </div>
         """
-        receipt_html += '</div>' # Fecha total-section
-        receipt_html += '</div>' # Fecha receipt-panel (FIM DO BLOCO PRETO)
-
-        # 2. Renderiza o HTML visual de uma única vez
+        receipt_html += '</div>' # Fecha seção total
+        receipt_html += '</div>' # Fecha o painel preto AQUI.
+        
+        # 2. Renderiza o visual
         st.markdown(receipt_html, unsafe_allow_html=True)
 
-        # 3. Botões (Ficam logo abaixo do painel visual)
-        st.write("")
+        # 3. Botões (Ficam FORA do HTML, logo abaixo)
+        st.write("") # Espaçamento
+        
         if st.button("FINALIZAR VENDA (F10)", type="primary", use_container_width=True):
             if st.session_state['cart']:
                 for item in st.session_state['cart']:
+                    # Certifique-se que api.process_sale existe e aceita esses argumentos
                     api.process_sale(db, item['id'], 1, "varejo", st.session_state['user_id'], cid)
                 st.session_state['cart'] = []
                 st.success("Venda processada!")
                 st.rerun()
+            else:
+                st.warning("Carrinho vazio!")
 
         if st.button("🗑️ Limpar Tudo", use_container_width=True):
             st.session_state['cart'] = []
             st.rerun()
 
-        
-        st.write("")
-        if st.button("FINALIZAR VENDA (F10)", type="primary", use_container_width=True):
-            if st.session_state['cart']:
-                for item in st.session_state['cart']:
-                    api.process_sale(db, item['id'], 1, "varejo", st.session_state['user_id'], cid)
-                st.session_state['cart'] = []
-                st.success("Venda processada!")
-                st.rerun()
-        
-        if st.button("🗑️ Limpar Tudo", use_container_width=True):
-            st.session_state['cart'] = []
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
 
 # --- FINANCEIRO (REFERÊNCIA image_ea9519) ---
 elif choice == "💰 Fluxo Financeiro":
