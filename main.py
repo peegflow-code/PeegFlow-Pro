@@ -1,4 +1,4 @@
-import streamlit as st
+okimport streamlit as st
 import pandas as pd
 import plotly.express as px
 from database import get_db, engine, Base
@@ -355,9 +355,104 @@ elif choice == "💰 Fluxo Financeiro":
             else:
                 st.info("Nenhuma despesa registrada recentemente.")
 
-# --- ESTOQUE ---
+# --- MÓDULO DE ESTOQUE ATUALIZADO ---
 elif choice == "📦 Estoque":
-    st.title("Gestão de Inventário")
+    st.title("Gestão de Inventário Inteligente")
+    
+    # Busca dados atualizados
     prods = api.get_products(db, cid)
-    df_p = pd.DataFrame([{"Nome": p.name, "Preço": p.price_retail, "Estoque": p.stock, "SKU": p.sku} for p in prods])
-    st.table(df_p)
+    
+    # Prepara Dataframe
+    data_list = []
+    low_stock_count = 0
+    for p in prods:
+        status = "🟢 OK"
+        if p.stock <= p.stock_min:
+            status = "🔴 BAIXO"
+            low_stock_count += 1
+            
+        data_list.append({
+            "ID": p.id,
+            "SKU": p.sku,
+            "Produto": p.name,
+            "Preço Venda": p.price_retail,
+            "Estoque Atual": p.stock,
+            "Mínimo": p.stock_min,
+            "Status": status
+        })
+    df_estoque = pd.DataFrame(data_list)
+
+    # Métricas de Topo
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Total de Produtos", len(prods))
+    m2.metric("Valor em Estoque (Estimado)", f"€ {sum([p.stock * p.price_wholesale for p in prods]):,.2f}")
+    m3.metric("Alertas de Reposição", low_stock_count, delta=-low_stock_count if low_stock_count > 0 else 0, delta_color="inverse")
+
+    st.divider()
+
+    # ABAS: Visão Geral | Reposição | Novo Produto
+    tab_visao, tab_repor, tab_novo = st.tabs(["📋 Visão Geral & Alertas", "➕ Repor Estoque", "✨ Novo Produto"])
+
+    # --- ABA 1: VISÃO GERAL ---
+    with tab_visao:
+        if low_stock_count > 0:
+            st.warning(f"⚠️ Atenção! Existem {low_stock_count} produtos com estoque abaixo do mínimo.")
+        
+        # Tabela com formatação visual
+        st.dataframe(
+            df_estoque,
+            column_config={
+                "Preço Venda": st.column_config.NumberColumn(format="€ %.2f"),
+                "Estoque Atual": st.column_config.ProgressColumn(
+                    "Nível de Estoque", 
+                    format="%d", 
+                    min_value=0, 
+                    max_value=100, # Ajuste conforme sua média de estoque
+                ),
+            },
+            use_container_width=True,
+            hide_index=True
+        )
+
+    # --- ABA 2: REPOR ESTOQUE (ENTRADA) ---
+    with tab_repor:
+        c_r1, c_r2 = st.columns([1, 1])
+        with c_r1:
+            st.markdown("### 📥 Entrada de Mercadoria")
+            st.info("Esta ação aumentará o estoque e lançará uma despesa no financeiro automaticamente.")
+            
+            with st.form("form_repor"):
+                # Selectbox com ID oculto visualmente mas útil para lógica
+                prod_options = {f"{p.sku} - {p.name} (Atual: {p.stock})": p.id for p in prods}
+                selected_label = st.selectbox("Selecione o Produto", list(prod_options.keys()))
+                selected_id = prod_options[selected_label]
+                
+                r_qty = st.number_input("Quantidade a Adicionar", min_value=1, step=1)
+                r_cost = st.number_input("Custo Unitário de Compra (€)", min_value=0.01, format="%.2f", help="Quanto você pagou por cada unidade ao fornecedor?")
+                
+                if st.form_submit_button("✅ Confirmar Entrada"):
+                    api.restock_product(db, cid, selected_id, r_qty, r_cost)
+                    st.success("Estoque atualizado e Custo lançado no Financeiro!")
+                    st.rerun()
+
+    # --- ABA 3: CADASTRAR NOVO PRODUTO ---
+    with tab_novo:
+        st.markdown("### ✨ Cadastro de Produto")
+        with st.form("form_novo_prod"):
+            c_n1, c_n2 = st.columns(2)
+            with c_n1:
+                n_nome = st.text_input("Nome do Produto", placeholder="Ex: Capa iPhone 15")
+                n_sku = st.text_input("Código SKU / Barras", placeholder="Ex: CAP-IP15-SIL")
+            with c_n2:
+                n_venda = st.number_input("Preço de Venda (€)", min_value=0.0)
+                n_custo_base = st.number_input("Preço de Custo Base (Ref.)", min_value=0.0)
+            
+            n_min = st.number_input("Estoque Mínimo (Alerta)", min_value=1, value=5, help="O sistema avisará quando o estoque for menor que este número.")
+            
+            if st.form_submit_button("💾 Salvar Produto"):
+                if n_nome and n_sku:
+                    api.register_product(db, cid, n_nome, n_venda, n_custo_base, n_min, n_sku)
+                    st.success(f"Produto {n_nome} cadastrado com sucesso!")
+                    st.rerun()
+                else:
+                    st.error("Preencha o Nome e o SKU.")
