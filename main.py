@@ -4,7 +4,7 @@ import plotly.express as px
 from database import get_db, engine, Base
 import services as api
 from models import User, Company, Product, Sale, Expense
-from datetime import datetime
+from datetime import datetime, timedelta
 import base64
 
 # Configurações iniciais da página
