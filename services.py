@@ -143,3 +143,48 @@ def get_financial_by_range(db: Session, company_id: int, start_date: datetime, e
         df_expenses = pd.DataFrame(columns=['date', 'description', 'category', 'amount'])
     
     return df_sales, df_expenses
+
+# --- services.py (Adicione estas funções no final) ---
+
+def register_product(db: Session, company_id: int, name: str, price_retail: float, price_wholesale: float, stock_min: int, sku: str):
+    """Cadastra um novo produto"""
+    new_prod = Product(
+        name=name,
+        price_retail=price_retail,
+        price_wholesale=price_wholesale,
+        stock=0, # Começa com 0, exige reposição inicial
+        stock_min=stock_min,
+        sku=sku,
+        company_id=company_id
+    )
+    db.add(new_prod)
+    db.commit()
+    return True
+
+def restock_product(db: Session, company_id: int, product_id: int, qty: int, cost_unit: float):
+    """
+    Repõe o estoque e gera uma despesa financeira automaticamente.
+    Registra data, quantidade e valor unitário (via Despesa).
+    """
+    product = db.query(Product).filter(Product.id == product_id).first()
+    if not product:
+        return False
+
+    # 1. Atualiza a quantidade no estoque
+    product.stock += qty
+    
+    # 2. Registra o custo dessa reposição no financeiro
+    total_cost = qty * cost_unit
+    desc = f"Reposição Estoque: {product.name} ({qty}x €{cost_unit:.2f})"
+    
+    new_expense = Expense(
+        description=desc,
+        amount=total_cost,
+        category="Custo de Mercadoria (CMV)", # Categoria específica para estoque
+        company_id=company_id,
+        date=datetime.now()
+    )
+    db.add(new_expense)
+    db.commit()
+    return True
+
