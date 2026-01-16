@@ -220,42 +220,140 @@ elif choice == "🛒 Checkout (PDV)":
             st.rerun()
 
 
-# --- FINANCEIRO (REFERÊNCIA image_ea9519) ---
+# --- FINANCEIRO ATUALIZADO ---
 elif choice == "💰 Fluxo Financeiro":
-    st.title("Módulo Financeiro")
-    df_v, df_e = api.get_financial_data(db, cid)
-    receita = df_v['price'].sum()
-    despesas = df_e['amount'].sum()
-    lucro = receita - despesas
+    st.title("Gestão Financeira Integrada")
+    
+    # Criação de abas para separar Relatórios de Cadastros
+    tab_fechamento, tab_calendario = st.tabs(["📊 Fechamento de Caixa", "🗓️ Calendário Fiscal & Despesas"])
 
-    col_resumo, col_proximos = st.columns([1.5, 1], gap="large")
-
-    with col_resumo:
-        st.markdown(f"""
-        <div class="fin-card-white">
-            <div class="fin-title">Fluxo de Caixa (Mês)</div>
-            <div class="fin-value-main">+ € {lucro:,.2f}</div>
-            <div class="receipt-item"><span style="color: #A3AED0;">Receitas de Vendas</span><span style="color: #10B981; font-weight:700;">+ € {receita:,.2f}</span></div>
-            <div class="receipt-item"><span style="color: #A3AED0;">Custo de Mercadoria (Estoque)</span><span style="color: #FF4B4B; font-weight:700;">- € {receita*0.3:,.2f}</span></div>
-            <div class="receipt-item"><span style="color: #A3AED0;">Operacional (Aluguel/Luz)</span><span style="color: #FF4B4B; font-weight:700;">- € {despesas:,.2f}</span></div>
-        </div>
-        """, unsafe_allow_html=True)
+    # --- ABA 1: FECHAMENTO DE CAIXA ---
+    with tab_fechamento:
+        st.markdown("### Selecione o Período")
         
-        st.write("")
-        if st.button("📥 Exportar Fechamento de Caixa (PDF)", use_container_width=True):
-            pdf_bytes = api.generate_financial_pdf(df_v, df_e, "Últimos 30 dias", "PeegFlow Store")
-            st.download_button("Clique aqui para Baixar", pdf_bytes, "financeiro.pdf", "application/pdf")
+        # Filtros de Data
+        c_date1, c_date2 = st.columns(2)
+        with c_date1:
+            dt_inicio = st.date_input("Data Início", datetime.now().replace(day=1))
+        with c_date2:
+            dt_fim = st.date_input("Data Fim", datetime.now())
 
-    with col_proximos:
-        st.markdown(f"""
-        <div class="fin-card-purple">
-            <div style="font-size: 0.85rem; font-weight: 700; opacity: 0.9; text-transform: uppercase;">Próximos Pagamentos</div>
-            <div style="font-size: 2.5rem; font-weight: 800; margin: 15px 0;">€ {despesas * 0.4:,.2f}</div>
-            <div style="background: white; color: #6366F1; text-align: center; padding: 12px; border-radius: 12px; font-weight: 700; margin-top: 30px; cursor: pointer;">
-                Ver Calendário Fiscal
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        # Converter para datetime para passar para o serviço
+        dt_start_full = datetime.combine(dt_inicio, datetime.min.time())
+        dt_end_full = datetime.combine(dt_fim, datetime.max.time())
+
+        if st.button("🔍 Gerar Fechamento"):
+            # Busca dados filtrados
+            df_vendas, df_despesas = api.get_financial_by_range(db, cid, dt_start_full, dt_end_full)
+            
+            # Cálculos
+            total_entradas = df_vendas['price'].sum() if not df_vendas.empty else 0.0
+            total_saidas = df_despesas['amount'].sum() if not df_despesas.empty else 0.0
+            saldo = total_entradas - total_saidas
+
+            # Cards de Resumo (Estilo CSS do usuário)
+            col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
+            col_kpi1.markdown(f"""
+                <div class="fin-card-white" style="padding: 20px;">
+                    <div class="fin-title">Total Entradas</div>
+                    <div style="color: #10B981; font-size: 1.8rem; font-weight: 800;">€ {total_entradas:,.2f}</div>
+                </div>""", unsafe_allow_html=True)
+            
+            col_kpi2.markdown(f"""
+                <div class="fin-card-white" style="padding: 20px;">
+                    <div class="fin-title">Total Saídas</div>
+                    <div style="color: #FF4B4B; font-size: 1.8rem; font-weight: 800;">€ {total_saidas:,.2f}</div>
+                </div>""", unsafe_allow_html=True)
+
+            cor_saldo = "#10B981" if saldo >= 0 else "#FF4B4B"
+            col_kpi3.markdown(f"""
+                <div class="fin-card-white" style="padding: 20px; border: 2px solid {cor_saldo};">
+                    <div class="fin-title">Saldo Líquido</div>
+                    <div style="color: {cor_saldo}; font-size: 1.8rem; font-weight: 800;">€ {saldo:,.2f}</div>
+                </div>""", unsafe_allow_html=True)
+
+            st.divider()
+
+            # Detalhamento
+            col_det1, col_det2 = st.columns(2)
+            
+            with col_det1:
+                st.subheader("📥 Detalhe de Entradas (Vendas)")
+                if not df_vendas.empty:
+                    # Tratamento visual da tabela
+                    st.dataframe(
+                        df_vendas[['date', 'product_name', 'quantity', 'price']].rename(columns={'date': 'Data', 'product_name': 'Produto', 'quantity': 'Qtd', 'price': 'Valor'}),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                else:
+                    st.info("Nenhuma venda neste período.")
+
+            with col_det2:
+                st.subheader("📤 Detalhe de Saídas (Despesas)")
+                if not df_despesas.empty:
+                    st.dataframe(
+                        df_despesas[['date', 'category', 'description', 'amount']].rename(columns={'date': 'Data', 'category': 'Categoria', 'description': 'Descrição', 'amount': 'Valor'}),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                else:
+                    st.info("Nenhuma despesa neste período.")
+
+    # --- ABA 2: CALENDÁRIO FISCAL (CADASTROS) ---
+    with tab_calendario:
+        c_form, c_list = st.columns([0.4, 0.6], gap="large")
+
+        # Formulário de Cadastro
+        with c_form:
+            st.markdown('<div class="fin-card-purple">', unsafe_allow_html=True)
+            st.markdown("### 📝 Nova Despesa")
+            with st.form("form_despesa"):
+                d_desc = st.text_input("Descrição", placeholder="Ex: Aluguel, Luz, Fornecedor X")
+                d_valor = st.number_input("Valor (€)", min_value=0.0, format="%.2f")
+                d_tipo = st.selectbox("Tipo de Despesa", ["Fixa (Recorrente)", "Variável (Extra)", "Impostos", "Pessoal"])
+                d_data = st.date_input("Data de Vencimento/Pagamento", datetime.now())
+                
+                submitted = st.form_submit_button("💾 Salvar Despesa", use_container_width=True)
+                if submitted:
+                    if d_desc and d_valor > 0:
+                        # Converte data para datetime completo
+                        d_data_full = datetime.combine(d_data, datetime.now().time())
+                        api.add_expense(db, cid, d_desc, d_valor, d_tipo, d_data_full)
+                        st.success("Despesa lançada com sucesso!")
+                        st.rerun()
+                    else:
+                        st.error("Preencha descrição e valor.")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        # Listagem Geral de Despesas (Futuras e Passadas)
+        with c_list:
+            st.subheader("📅 Histórico e Previsão de Contas")
+            
+            # Pega todas as despesas dos últimos 60 dias e próximos 30 dias
+            d_start = datetime.now() - timedelta(days=60)
+            d_end = datetime.now() + timedelta(days=30)
+            _, df_all_expenses = api.get_financial_by_range(db, cid, d_start, d_end)
+            
+            if not df_all_expenses.empty:
+                # Ordenar por data
+                df_all_expenses['date'] = pd.to_datetime(df_all_expenses['date'])
+                df_all_expenses = df_all_expenses.sort_values(by='date', ascending=False)
+                
+                # Exibir tabela interativa
+                st.dataframe(
+                    df_all_expenses[['date', 'category', 'description', 'amount']],
+                    column_config={
+                        "date": st.column_config.DateColumn("Data"),
+                        "amount": st.column_config.NumberColumn("Valor (€)", format="€ %.2f"),
+                        "category": "Tipo",
+                        "description": "Descrição"
+                    },
+                    use_container_width=True,
+                    hide_index=True
+                )
+            else:
+                st.info("Nenhuma despesa registrada recentemente.")
 
 # --- ESTOQUE ---
 elif choice == "📦 Estoque":
